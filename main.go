@@ -1,4 +1,4 @@
-package main
+package monzo_roundup
 
 import (
   "errors"
@@ -15,6 +15,7 @@ import (
   "github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
   "strconv"
   "io/ioutil"
+  "log"
 )
 
 var (
@@ -97,25 +98,32 @@ func DynamoDBService() (*dynamodb.DynamoDB, error) {
 func GetUser(userId string, svc *dynamodb.DynamoDB) (UserData, error) {
   userData := UserData{}
 
-  result, err := svc.GetItem(&dynamodb.GetItemInput{
+  getItemInput := &dynamodb.GetItemInput{
     TableName: aws.String("monzo-roundup"),
     Key: map[string]*dynamodb.AttributeValue{
       "id": {
         S: aws.String(userId),
       },
     },
-  })
+  }
+  result, err := svc.GetItem(getItemInput); if err != nil {
+    errorMessage := fmt.Sprintf("Error getting item from DyanamoDB (id: %v): %v", userId, err)
 
-  if err != nil {
-    fmt.Println(err.Error())
-    return userData, err
+    return userData, errors.New(errorMessage)
   }
 
-  err = dynamodbattribute.UnmarshalMap(result.Item, &userData)
+  // Were we unable to get an item for the userID?
+  if len(result.Item) == 0 {
+    errorMessage := fmt.Sprintf("Unable to find a DynamoDB item for (id: %v)", userId)
 
-  if err != nil {
-    fmt.Printf("Failed to unmarshal Record, %v", err)
-    return UserData{}, err
+    return userData, errors.New(errorMessage)
+  }
+
+  // Try an unmarshal our item into a UserData object
+  err = dynamodbattribute.UnmarshalMap(result.Item, &userData); if err != nil {
+    errorMessage := fmt.Sprintf("Failed to unmarshal DynamoDB item (id: %v), %v", userId, err)
+
+    return UserData{}, errors.New(errorMessage)
   }
 
   return userData, nil
@@ -131,29 +139,29 @@ func RefreshToken(refreshToken string, accountID string) (UserData, error) {
   data.Add("refresh_token", refreshToken)
 
   // Construct a new Request
-  fmt.Println("Creating request object")
+  log.Println("Creating request object")
   req, err := http.NewRequest("POST", uri, strings.NewReader(data.Encode()))
   req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
   // req.Header.Add("Content-Length", strconv.Itoa(len(data.Encode())))
 
-  fmt.Println("Calling MakeRequest")
+  log.Println("Calling MakeRequest")
   refreshData, err := MakeRequest(req, err, uri, false, "")
-  fmt.Println("Called MakeRequest")
+  log.Println("Called MakeRequest")
 
   if err != nil {
-    errorMessage := fmt.Sprintf("Error making request: %v", err)
+    errorMessage := fmt.Sprintf("Error refreshing Monzo token: %v", err)
 
-    fmt.Print(errorMessage)
+    log.Println(errorMessage)
 
     return UserData{}, errors.New(errorMessage)
   }
 
-  fmt.Println("Decoding JSON")
+  log.Println("Decoding JSON")
   var refreshResponse RefreshAPIResponse
   if err := json.Unmarshal(refreshData, &refreshResponse); err != nil {
     errorMessage := fmt.Sprintf("Error parsing JSON: %v", err)
 
-    fmt.Print(errorMessage)
+    log.Println(errorMessage)
 
     return UserData{}, errors.New(errorMessage)
   }
@@ -173,18 +181,18 @@ func MakeRequest(httpRequest *http.Request, httpError error, uri string, include
   if httpError != nil {
     errorMessage := fmt.Sprintf("error creating request object for: %s\n", uri)
 
-    fmt.Print(errorMessage)
+    log.Print(errorMessage)
 
     return nil, errors.New(errorMessage)
   }
 
   if includeAuth {
-    fmt.Println("Adding auth header")
+    log.Println("Adding auth header")
     authHeaderValue := fmt.Sprintf("Bearer %s", authToken)
     httpRequest.Header.Add("Authorization", authHeaderValue)
   }
 
-  fmt.Println("Making request")
+  log.Println("Making request")
   resp, err := client.Do(httpRequest)
   if err != nil {
     errorMessage := fmt.Sprintf("error making request to: %s\n", uri)
@@ -196,17 +204,17 @@ func MakeRequest(httpRequest *http.Request, httpError error, uri string, include
     return nil, errors.New(errorMessage)
   }
 
-  fmt.Printf("Recieved status code: %v\n", resp.StatusCode)
+  log.Printf("Recieved status code: %v\n", resp.StatusCode)
 
-  fmt.Println("Reading body")
+  log.Println("Reading body")
   body, err := ioutil.ReadAll(resp.Body)
 
   defer resp.Body.Close()
 
   if resp.StatusCode != 200 {
-    errorMessage := fmt.Sprintf("Non-200 Status code: %s\n", body)
+    errorMessage := fmt.Sprintf("Non-200 Status code. Status code: (%v), body: %s", resp.StatusCode, body)
 
-    fmt.Print(errorMessage)
+    log.Println(errorMessage)
 
     return nil, errors.New(errorMessage)
   }
@@ -228,12 +236,12 @@ func UpdateUser(userData UserData, svc *dynamodb.DynamoDB) (error) {
     RefreshToken: userData.RefreshToken,
   })
   if updateError != nil {
-    fmt.Println(updateError.Error())
+    log.Println(updateError.Error())
     return updateError
   }
 
   // Update the object
-  fmt.Println("Updating record")
+  log.Println("Updating record")
   input := &dynamodb.UpdateItemInput{
     TableName: aws.String("monzo-roundup"),
     Key: map[string]*dynamodb.AttributeValue{
@@ -246,20 +254,23 @@ func UpdateUser(userData UserData, svc *dynamodb.DynamoDB) (error) {
     ReturnValues:              aws.String("UPDATED_NEW"),
   }
 
-  _, err := svc.UpdateItem(input)
+  result, err := svc.UpdateItem(input); if err != nil {
+    errorMessage := fmt.Sprintf("Error updating item in DynamoDB: %v", err)
 
-  if err != nil {
-    fmt.Println(err.Error())
-    return err
+    return errors.New(errorMessage)
   }
 
-  fmt.Println("Updated record")
+  if len(result.Attributes) == 0 {
+    errorMessage := fmt.Sprintf("Update to DynamoDB did nothing (id: %v)", userData.ID)
+
+    return errors.New(errorMessage)
+  }
 
   return nil
 }
 
 func GetTransaction(transactionId string, requestToken string) (TransactionAPIResponse, error) {
-  fmt.Printf("Requesting transaction: %v\n", transactionId)
+  log.Printf("Requesting transaction: %v\n", transactionId)
 
   uri := fmt.Sprintf("https://api.monzo.com/transactions/%s", transactionId)
 
@@ -269,7 +280,7 @@ func GetTransaction(transactionId string, requestToken string) (TransactionAPIRe
   if err := json.Unmarshal(transactionData, &data); err != nil {
     errorMessage := fmt.Sprintf("error parsing JSON: %s", err)
 
-    fmt.Print(errorMessage)
+    log.Print(errorMessage)
 
     return TransactionAPIResponse{}, errors.New(errorMessage)
   }
@@ -278,23 +289,23 @@ func GetTransaction(transactionId string, requestToken string) (TransactionAPIRe
 }
 
 func Transfer(diff int, userData UserData, transactionID string) (string, error) {
-  fmt.Println("Getting Coin Jar Pot")
+  log.Println("Getting Coin Jar Pot")
   pot, err := GetCoinJarPot(userData)
   if err != nil {
     errorMessage := fmt.Sprintf("error getting Coin Jar: %v", err)
 
-    fmt.Println(errorMessage)
+    log.Println(errorMessage)
 
     return "", errors.New(errorMessage)
   }
-  fmt.Println("Got Coin Jar Pot")
+  log.Println("Got Coin Jar Pot")
 
-  fmt.Printf("Depositing into pot (%v)\n", pot.ID)
+  log.Printf("Depositing into pot (%v)\n", pot.ID)
   balance, err := DepositIntoPot(diff, pot, userData, transactionID)
   if err != nil {
     errorMessage := fmt.Sprintf("error depositing into Pot: %v", err)
 
-    fmt.Println(errorMessage)
+    log.Println(errorMessage)
 
     return "", errors.New(errorMessage)
   }
@@ -306,19 +317,21 @@ func Transfer(diff int, userData UserData, transactionID string) (string, error)
     message = fmt.Sprintf("Updated pot (%v) old balance: %v, new balance is: %v", pot.ID, pot.Balance, balance)
   }
 
-  fmt.Println(message)
+  log.Println(message)
 
   return message, nil
 }
 
 func GetCoinJarPot(userData UserData) (Pot, error) {
-  potsData, _ := GetRequest("https://api.monzo.com/pots", true, userData.AuthToken)
+  potsData, err := GetRequest("https://api.monzo.com/pots", true, userData.AuthToken); if err != nil {
+    errorMessage := fmt.Sprintf("error getting pots from Monzo: %v", err)
+
+    return Pot{}, errors.New(errorMessage)
+  }
 
   var data PotsAPIResponse
-  if err := json.Unmarshal(potsData, &data); err != nil {
+  err = json.Unmarshal(potsData, &data); if err != nil {
     errorMessage := fmt.Sprintf("error parsing JSON: %s", err)
-
-    fmt.Print(errorMessage)
 
     return Pot{}, errors.New(errorMessage)
   }
@@ -334,7 +347,7 @@ func GetCoinJarPot(userData UserData) (Pot, error) {
   if len(coinJar.ID) == 0 {
     errorMessage := "unable to find an active pot named 'Coin Jar'"
 
-    fmt.Println(errorMessage)
+    log.Println(errorMessage)
 
     return coinJar, errors.New(errorMessage)
   }
@@ -352,7 +365,7 @@ func DepositIntoPot(amount int, pot Pot, userData UserData, transactionID string
   data.Add("amount", strconv.Itoa(amount))
   data.Add("dedupe_id", dedupeID)
 
-  fmt.Printf("Attempting deposit with dedupe_id: %v\n", dedupeID)
+  log.Printf("Attempting deposit with dedupe_id: %v\n", dedupeID)
 
   // Construct a new Request
   req, err := http.NewRequest("PUT", uri, strings.NewReader(data.Encode()))
@@ -360,12 +373,17 @@ func DepositIntoPot(amount int, pot Pot, userData UserData, transactionID string
   req.Header.Add("Content-Length", strconv.Itoa(len(data.Encode())))
 
   potData, err := MakeRequest(req, err, uri, true, userData.AuthToken)
+  if err != nil {
+    log.Println(err.Error())
+
+    return -1, err
+  }
 
   var potResponse Pot
   if err := json.Unmarshal(potData, &potResponse); err != nil {
     errorMessage := fmt.Sprintf("Error parsing JSON: %v", err)
 
-    fmt.Print(errorMessage)
+    log.Print(errorMessage)
 
     return -1, errors.New(errorMessage)
   }
@@ -374,68 +392,68 @@ func DepositIntoPot(amount int, pot Pot, userData UserData, transactionID string
 }
 
 func Handler(request Request) (string, error) {
-  fmt.Printf("STARTING WITH:\n%v\n%v\n\n", request.AccountID, request.TransactionID)
+  log.Printf("STARTING WITH:\n%v\n%v\n\n", request.AccountID, request.TransactionID)
 
   // Fetch the user's details from DynamoDB
-  fmt.Println("Creating DynamoDB Service")
+  log.Println("Creating DynamoDB Service")
   svc, err := DynamoDBService()
   if err != nil {
     return "", err
   }
-  fmt.Println("DynamoDB Service Created")
+  log.Println("DynamoDB Service Created")
 
   // Get user from DynamoDB
-  fmt.Println("Getting user from DynamoDB")
+  log.Println("Getting user from DynamoDB")
   userData, err := GetUser(request.AccountID, svc)
   if err != nil {
     return "Error getting user from DynamoDB", err
   }
-  fmt.Println("Got user from DynamoDB")
+  log.Println("Got user from DynamoDB")
 
   // Refresh the token from Monzo
-  fmt.Println("Refreshing users Access Token")
+  log.Println("Refreshing users Access Token")
   refreshedUserData, err := RefreshToken(userData.RefreshToken, request.AccountID)
   if err != nil {
     return "Error refreshing user token", err
   }
-  fmt.Println("Refreshed users Access Token")
+  log.Println("Refreshed users Access Token")
 
   // Save updated token to DynamoDB
-  fmt.Println("Updating users entry in DynamoDB")
+  log.Println("Updating users entry in DynamoDB")
   dynamodbError := UpdateUser(refreshedUserData, svc)
   if dynamodbError != nil {
     return "Error updating user data in DynamoDB", dynamodbError
   }
-  fmt.Println("Updated users entry in DynamoDB")
+  log.Println("Updated users entry in DynamoDB")
 
   // Fetch transaction from Monzo
-  fmt.Println("Getting transaction from Monzo")
+  log.Println("Getting transaction from Monzo")
   transactionData, err := GetTransaction(request.TransactionID, refreshedUserData.AuthToken)
   if err != nil {
     return "Error getting transaction", err
   }
-  fmt.Println("Got transaction from Monzo")
+  log.Println("Got transaction from Monzo")
 
   // Work out if there is change
-  fmt.Printf("Calclating Diff (100 - %v)\n", transactionData.Transaction.LocalAmount)
+  log.Printf("Calclating Diff (100 - %v)\n", transactionData.Transaction.LocalAmount)
   diff := 100 + transactionData.Transaction.LocalAmount
-  fmt.Printf("Calculated Diff: %v\n", diff)
+  log.Printf("Calculated Diff: %v\n", diff)
 
-  fmt.Println("Do we need to round?")
+  log.Println("Do we need to round?")
   if diff <= 0 || diff >= 100 {
-    fmt.Println("No")
+    log.Println("No")
     return "No need to round", nil
   }
-  fmt.Println("Yes")
+  log.Println("Yes")
 
   // Move change into pot
-  fmt.Println("Initialising transfer")
+  log.Println("Initialising transfer")
   newBalanceMessage, err := Transfer(diff, refreshedUserData, request.TransactionID)
   if err != nil {
-    fmt.Println("Error transferring")
+    log.Println("Error transferring")
     return "Error transferring", err
   }
-  fmt.Println("Transferred")
+  log.Println("Transferred")
 
   return newBalanceMessage, nil
 }
