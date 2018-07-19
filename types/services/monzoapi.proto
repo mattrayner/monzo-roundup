@@ -1,0 +1,71 @@
+syntax = "proto3";
+package monzoapi;
+option go_package = "github.com/mattrayner/monzo-roundup/types/services/monzoapi";
+
+import "types/services/dynamodb.proto";
+
+service MonzoAPI {
+    rpc RefreshToken   (RefreshTokenInput)   returns (RefreshTokenOutput);
+    rpc GetTransaction (GetTransactionInput) returns (GetTransactionOutput);
+    rpc GetCoinJar     (GetCoinJarInput)     returns (GetCoinJarOutput);
+    rpc Deposit        (DepositInput)        returns (DepositOutput);
+}
+
+message RefreshTokenInput {
+    string refreshToken = 1;
+}
+
+message RefreshTokenOutput {
+    string refreshToken = 1;
+    string authToken    = 2;
+}
+
+message GetTransactionInput {
+    string      transactionID = 1;
+    MonzoClient monzoClient   = 2;
+}
+
+message GetTransactionOutput {
+    string transactionID = 1;
+    string created       = 2;
+    string description   = 3;
+    sint32 amount        = 4;
+    sint32 localAmount   = 5;
+    bool   originator    = 6;
+}
+
+message GetCoinJarInput {
+    MonzoClient monzoClient = 1;
+}
+
+message GetCoinJarOutput {
+    Pot pot = 1;
+}
+
+message Pot {
+    string potID    = 1;
+    string name     = 2;
+    string stype    = 3;
+    sint32 balance  = 4;
+    string currency = 5;
+    string created  = 6;
+    string updated  = 7;
+    bool   deleted  = 8;
+}
+
+message DepositInput {
+    int32       amount      = 1;
+    Pot         pot         = 2;
+    MonzoClient monzoClient = 3;
+}
+
+message DepositOutput {
+    Pot pot = 1;
+}
+
+message Empty {}
+
+message MonzoClient {
+    string clientID     = 1;
+    string clientSecret = 2;
+}

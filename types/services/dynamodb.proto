@@ -1,0 +1,30 @@
+syntax = "proto3";
+package dynamodb;
+option go_package = "github.com/mattrayner/monzo-roundup/types/services/dynamodb";
+
+service DynamoDB {
+  rpc GetUser  (GetUserInput)  returns (GetUserOutput);
+  rpc UpdateUser (UpdateUserInput) returns (UpdateUserOutput);
+}
+
+message GetUserInput {
+  string accountID = 1;
+}
+
+message GetUserOutput {
+  User user = 1;
+}
+
+message UpdateUserInput {
+  User user = 1;
+}
+
+message UpdateUserOutput {
+  User user = 1;
+}
+
+message User {
+  string accountID = 1;
+  string authKey = 2;
+  string refreshKey = 3;
+}

@@ -1,0 +1,17 @@
+syntax = "proto3";
+package handler;
+option go_package = "github.com/mattrayner/monzo-roundup/types/services/handler";
+
+service Handler {
+    rpc Handle (HandleInput) returns (HandleOutput);
+}
+
+message HandleInput {
+    string accountID     = 1;
+    string transactionID = 2;
+}
+
+message HandleOutput {
+    int32 remainder = 1;
+    int32 balance = 2;
+}
