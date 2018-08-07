@@ -16,6 +16,7 @@ import (
   "strconv"
   "io/ioutil"
   "log"
+  "time"
 )
 
 var (
@@ -27,7 +28,7 @@ var (
 
 type Request struct {
   AccountID     string `json:"account_id"`
-  TransactionID string `json:"transaction_id"`
+  Amount        string `json:"amount"`
 }
 
 type UserData struct {
@@ -288,7 +289,7 @@ func GetTransaction(transactionId string, requestToken string) (TransactionAPIRe
   return data, nil
 }
 
-func Transfer(diff int, userData UserData, transactionID string) (string, error) {
+func Transfer(diff int, userData UserData) (string, error) {
   log.Println("Getting Coin Jar Pot")
   pot, err := GetCoinJarPot(userData)
   if err != nil {
@@ -301,7 +302,7 @@ func Transfer(diff int, userData UserData, transactionID string) (string, error)
   log.Println("Got Coin Jar Pot")
 
   log.Printf("Depositing into pot (%v)\n", pot.ID)
-  balance, err := DepositIntoPot(diff, pot, userData, transactionID)
+  balance, err := DepositIntoPot(diff, pot, userData)
   if err != nil {
     errorMessage := fmt.Sprintf("error depositing into Pot: %v", err)
 
@@ -355,10 +356,10 @@ func GetCoinJarPot(userData UserData) (Pot, error) {
   return coinJar, nil
 }
 
-func DepositIntoPot(amount int, pot Pot, userData UserData, transactionID string) (int, error) {
+func DepositIntoPot(amount int, pot Pot, userData UserData) (int, error) {
   uri := fmt.Sprintf("https://api.monzo.com/pots/%v/deposit", pot.ID)
 
-  dedupeID := fmt.Sprintf("%v_%v", userData.ID, transactionID)
+  dedupeID := fmt.Sprintf("%v_%v", userData.ID, time.Now().Unix())
 
   data := url.Values{}
   data.Set("source_account_id", userData.ID)
@@ -392,7 +393,7 @@ func DepositIntoPot(amount int, pot Pot, userData UserData, transactionID string
 }
 
 func Handler(request Request) (string, error) {
-  log.Printf("STARTING WITH:\n%v\n%v\n\n", request.AccountID, request.TransactionID)
+  log.Printf("STARTING WITH:\n%v\n%v\n\n", request.AccountID, request.Amount)
 
   // Fetch the user's details from DynamoDB
   log.Println("Creating DynamoDB Service")
@@ -426,17 +427,13 @@ func Handler(request Request) (string, error) {
   }
   log.Println("Updated users entry in DynamoDB")
 
-  // Fetch transaction from Monzo
-  log.Println("Getting transaction from Monzo")
-  transactionData, err := GetTransaction(request.TransactionID, refreshedUserData.AuthToken)
-  if err != nil {
-    return "Error getting transaction", err
-  }
-  log.Println("Got transaction from Monzo")
-
   // Work out if there is change
-  log.Printf("Calclating Diff (100 - %v)\n", transactionData.Transaction.LocalAmount)
-  diff := 100 + transactionData.Transaction.LocalAmount
+  log.Printf("Calclating Diff (100 - %v)\n", request.Amount)
+  intAmount, err := strconv.ParseInt(request.Amount, 10, 32)
+  if err != nil {
+    return "Unable to convert string to int", err
+  }
+  diff := 100 + int(intAmount)
   log.Printf("Calculated Diff: %v\n", diff)
 
   log.Println("Do we need to round?")
@@ -448,7 +445,7 @@ func Handler(request Request) (string, error) {
 
   // Move change into pot
   log.Println("Initialising transfer")
-  newBalanceMessage, err := Transfer(diff, refreshedUserData, request.TransactionID)
+  newBalanceMessage, err := Transfer(diff, refreshedUserData)
   if err != nil {
     log.Println("Error transferring")
     return "Error transferring", err

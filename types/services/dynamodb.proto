@@ -24,7 +24,7 @@ message UpdateUserOutput {
 }
 
 message User {
-  string accountID = 1;
-  string authKey = 2;
-  string refreshKey = 3;
+  string accountID    = 1;
+  string authToken    = 2;
+  string refreshToken = 3;
 }

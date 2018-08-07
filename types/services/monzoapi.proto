@@ -13,6 +13,8 @@ service MonzoAPI {
 
 message RefreshTokenInput {
     string refreshToken = 1;
+    Client monzoClient  = 2;
+    string authKey      = 3;
 }
 
 message RefreshTokenOutput {
@@ -21,8 +23,9 @@ message RefreshTokenOutput {
 }
 
 message GetTransactionInput {
-    string      transactionID = 1;
-    MonzoClient monzoClient   = 2;
+    string transactionID = 1;
+    Client monzoClient   = 2;
+    string authKey       = 3;
 }
 
 message GetTransactionOutput {
@@ -35,7 +38,8 @@ message GetTransactionOutput {
 }
 
 message GetCoinJarInput {
-    MonzoClient monzoClient = 1;
+    Client monzoClient = 1;
+    string authKey     = 2;
 }
 
 message GetCoinJarOutput {
@@ -45,7 +49,7 @@ message GetCoinJarOutput {
 message Pot {
     string potID    = 1;
     string name     = 2;
-    string stype    = 3;
+    string type     = 3;
     sint32 balance  = 4;
     string currency = 5;
     string created  = 6;
@@ -54,18 +58,17 @@ message Pot {
 }
 
 message DepositInput {
-    int32       amount      = 1;
-    Pot         pot         = 2;
-    MonzoClient monzoClient = 3;
+    int32  amount      = 1;
+    Pot    pot         = 2;
+    Client monzoClient = 3;
+    string authKey     = 4;
 }
 
 message DepositOutput {
     Pot pot = 1;
 }
 
-message Empty {}
-
-message MonzoClient {
+message Client {
     string clientID     = 1;
     string clientSecret = 2;
 }

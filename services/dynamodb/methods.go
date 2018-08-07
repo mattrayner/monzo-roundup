@@ -10,7 +10,7 @@ import (
   "log"
 )
 
-func (s *service) GetUser(input *dynamodb.GetUserInput)    (*dynamodb.GetUserOutput,    error) {
+func (s *service) GetUser(input *dynamodb.GetUserInput) (*dynamodb.GetUserOutput, error) {
   getItemInput := &_dynamodb.GetItemInput{
     TableName: aws.String("monzo-roundup"),
     Key: map[string]*_dynamodb.AttributeValue{
@@ -40,6 +40,10 @@ func (s *service) GetUser(input *dynamodb.GetUserInput)    (*dynamodb.GetUserOut
     return &dynamodb.GetUserOutput{}, errors.New(errorMessage)
   }
 
+  if output.AccountID == "" {
+    output.AccountID = input.AccountID
+  }
+
   return &dynamodb.GetUserOutput{ User: &output }, nil
 }
 
@@ -51,8 +55,8 @@ func (s *service) UpdateUser(input *dynamodb.UpdateUserInput) (*dynamodb.UpdateU
 
   // Create an update object
   update, updateError := dynamodbattribute.MarshalMap(UserDataUpdate{
-    AuthToken:    input.User.AuthKey,
-    RefreshToken: input.User.RefreshKey,
+    AuthToken:    input.User.AuthToken,
+    RefreshToken: input.User.RefreshToken,
   })
 
   if updateError != nil {

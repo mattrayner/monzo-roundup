@@ -9,8 +9,9 @@ type MockService struct {
   mock.Mock
 }
 
-func (s *MockService) Start() {
-  s.Called()
+func (s *MockService) Start() (error) {
+  ret := s.Called()
+  return ret.Get(0).(error)
 }
 
 func (s *MockService) Stop() {

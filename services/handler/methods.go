@@ -8,20 +8,21 @@ import (
   "errors"
 )
 
-func (s *service) Handle(input handler.HandleInput) (handler.HandleOutput, error) {
-  user, err := s.dynamoDB.GetUser(&dynamodb.GetUserInput{ AccountID: input.AccountID }); if err != nil {
+func (s *service) Handle(input *handler.HandleInput) (handler.HandleOutput, error) {
+  getUserOutput, err := s.dynamoDB.GetUser(&dynamodb.GetUserInput{ AccountID: input.AccountID }); if err != nil {
     return handler.HandleOutput{}, errors.New("unable to get user")
   }
 
-  user, err = s.monzo.RefreshToken(user.RefreshToken, s.monzoClient); if err != nil {
+  refreshTokenOutput, err := s.monzo.RefreshToken(&monzoapi.RefreshTokenInput{ RefreshToken: getUserOutput.User.RefreshToken, MonzoClient: s.monzoClient }); if err != nil {
     return handler.HandleOutput{}, errors.New("unable to refresh token")
   }
 
-  user, err = s.dynamoDB.UpdateUser(user); if err != nil {
+  user := &dynamodb.User{ AccountID: input.AccountID, RefreshToken: refreshTokenOutput.RefreshToken, AuthToken: refreshTokenOutput.AuthToken }
+  _, err = s.dynamoDB.UpdateUser(&dynamodb.UpdateUserInput{ User: user }); if err != nil {
     return handler.HandleOutput{}, errors.New("unable to update user")
   }
 
-  transaction, err := s.monzo.GetTransaction(monzoapi.GetTransactionInput{TransactionID: input.TransactionID}, s.monzoClient); if err != nil {
+  transaction, err := s.monzo.GetTransaction(&monzoapi.GetTransactionInput{ TransactionID: input.TransactionID, MonzoClient: s.monzoClient, AuthKey: user.AuthToken }); if err != nil {
     return handler.HandleOutput{}, errors.New("unable to get transaction")
   }
 
@@ -31,18 +32,18 @@ func (s *service) Handle(input handler.HandleInput) (handler.HandleOutput, error
     return handler.HandleOutput{}, errors.New("nothing to round")
   }
 
-  pot, err := s.monzo.GetCoinJar(s.monzoClient); if err != nil {
+  getCoinJarOutput, err := s.monzo.GetCoinJar(&monzoapi.GetCoinJarInput{ MonzoClient: s.monzoClient, AuthKey: user.AuthToken }); if err != nil {
     return handler.HandleOutput{}, errors.New("unable to get a Coin Jar pot")
   }
 
-  updatedPot, err := s.monzo.Deposit(remainder, pot); if err != nil {
+  depositOutput, err := s.monzo.Deposit(&monzoapi.DepositInput{ Amount: remainder, Pot: getCoinJarOutput.Pot, MonzoClient: s.monzoClient, AuthKey: user.AuthToken }); if err != nil {
     return handler.HandleOutput{}, errors.New("unable to deposit into pot")
   }
   
-  diff := updatedPot.Balance - pot.Balance
+  diff := depositOutput.Pot.Balance - getCoinJarOutput.Pot.Balance
   if diff != remainder {
     return handler.HandleOutput{}, errors.New("pot balance did not increase by remainder")
   }
   
-  return handler.HandleOutput{ Balance: updatedPot.Balance, Remainder: remainder }, nil
+  return handler.HandleOutput{ Balance: depositOutput.Pot.Balance, Remainder: remainder }, nil
 }

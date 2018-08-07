@@ -12,7 +12,7 @@ import (
 func TestNetworking(t *testing.T) {
   RegisterFailHandler(Fail)
   log.SetOutput(ioutil.Discard)
-  RunSpecs(t, "Client Suite")
+  RunSpecs(t, "Network Client Spec Suite")
 }
 
 var _ = BeforeSuite(func() {

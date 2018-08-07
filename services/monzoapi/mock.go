@@ -9,7 +9,7 @@ type MockService struct {
   mock.Mock
 }
 
-func (s *MockService) Start(monzoClient *monzoapi.MonzoClient) {
+func (s *MockService) Start(monzoClient *monzoapi.Client) {
   s.Called()
 }
 
